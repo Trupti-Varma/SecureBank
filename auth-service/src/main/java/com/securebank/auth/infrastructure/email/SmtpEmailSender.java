@@ -1,0 +1,96 @@
+package com.securebank.auth.infrastructure.email;
+
+import com.securebank.auth.application.EmailSender;
+import com.securebank.auth.config.SecureBankProperties;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.stereotype.Component;
+
+/**
+ * SMTP implementation of {@link EmailSender} using Spring's JavaMailSender.
+ *
+ * In development this points at a local/Gmail SMTP server; in tests it points
+ * at an in-process GreenMail server. The SMTP host/port/credentials are all
+ * configuration-driven (see application.yml), so no provider details are
+ * hard-coded here.
+ */
+@Component
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "securebank.mail.provider", havingValue = "smtp", matchIfMissing = true)
+public class SmtpEmailSender implements EmailSender {
+
+    private final JavaMailSender mailSender;
+    private final SecureBankProperties properties;
+
+    public SmtpEmailSender(JavaMailSender mailSender, SecureBankProperties properties) {
+        this.mailSender = mailSender;
+        this.properties = properties;
+    }
+
+    @Override
+    public void sendVerificationEmail(String toAddress, String recipientName, String verificationToken) {
+        String link = properties.getMail().getVerificationUrlBase()
+                + "?token="
+                + URLEncoder.encode(verificationToken, StandardCharsets.UTF_8);
+
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(properties.getMail().getFromAddress());
+        message.setTo(toAddress);
+        message.setSubject("Verify your SecureBank email address");
+        message.setText(
+                "Hi " + recipientName + ",\n\n"
+                        + "Please verify your email address to continue setting up your "
+                        + "SecureBank account:\n\n"
+                        + link + "\n\n"
+                        + "This link expires in 24 hours. If you did not create a "
+                        + "SecureBank account, you can safely ignore this email.\n");
+
+        mailSender.send(message);
+    }
+
+    @Override
+    public void sendRecoveryEmail(String toAddress, String recipientName, String recoveryToken) {
+        String base = properties.getMail().getVerificationUrlBase();
+        String recoveryBase = base.endsWith("/verify-email") ? base.replace("/verify-email", "/recover") : base + "/recover";
+        String link = recoveryBase
+                + "?token="
+                + URLEncoder.encode(recoveryToken, StandardCharsets.UTF_8)
+                + "&email="
+                + URLEncoder.encode(toAddress, StandardCharsets.UTF_8);
+
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(properties.getMail().getFromAddress());
+        message.setTo(toAddress);
+        message.setSubject("Recover your SecureBank account");
+        message.setText(
+                "Hi " + recipientName + ",\n\n"
+                        + "You requested to recover your SecureBank account. "
+                        + "Please use the link below to verify your email and enter your recovery code:\n\n"
+                        + link + "\n\n"
+                        + "This link expires in 24 hours. If you did not request account recovery, "
+                        + "you can safely ignore this email.\n");
+
+        mailSender.send(message);
+    }
+
+    @Override
+    public void sendStepUpCode(String toAddress, String recipientName, String code) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(properties.getMail().getFromAddress());
+        message.setTo(toAddress);
+        message.setSubject("Your SecureBank verification code: " + code);
+        message.setText(
+                "Hi " + recipientName + ",\n\n"
+                        + "We noticed a sign-in to your SecureBank account from a new device. "
+                        + "To confirm it's you, enter this verification code:\n\n"
+                        + "    " + code + "\n\n"
+                        + "This code expires in 10 minutes. If this wasn't you, do not enter the "
+                        + "code — your account remains protected by your passkey, and you should "
+                        + "review your active devices.\n");
+
+        mailSender.send(message);
+    }
+}
